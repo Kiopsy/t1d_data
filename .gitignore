@@ -161,4 +161,4 @@ cython_debug/
 
 # Project specific ignores
 cleaned_data/
-export_data/
+export_data/cn
