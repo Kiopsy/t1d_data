@@ -16,6 +16,7 @@ import re
 import csv
 from config import *
 import pytz
+import sys
 
 all_events = [] # List of all events from all data sources (CSV & JSON)
 
@@ -123,7 +124,8 @@ def matches_timestamp_format(timestamp_str: str):
             datetime.strptime(timestamp_str, format_str)
             return True
         except ValueError:
-            return False
+            continue
+    return False
     
 def get_filepaths(folder_path: str) -> list:
     """
@@ -289,12 +291,14 @@ def parse_fitbit_data(filepaths: list):
             date = file_struct['date']
             extension = file_struct['extension']
 
+            print("Current file:", filename)
+
             if extension == '.csv':
                 with open(filename, 'r') as csvfile:
                     csvreader = csv.DictReader(csvfile)
                     for row in csvreader:
                         for key, value in list(row.items()):  # Use list to make a copy of the items
-                            if matches_timestamp_format(value):
+                            if not isinstance(value, dict) and isinstance(value, str) and matches_timestamp_format(value):
                                 converted_time = convert_timestamp(value)
                                 del row[key]
                                 row[utc_time_col] = converted_time['utc_time']
@@ -305,7 +309,7 @@ def parse_fitbit_data(filepaths: list):
                     data = json.load(jsonfile)  
                     for item in data:
                         for key, value in list(item.items()):
-                            if matches_timestamp_format(value):
+                            if not isinstance(value, dict) and isinstance(value, str) and matches_timestamp_format(value):
                                 converted_time = convert_timestamp(value)
                                 del item[key]
                                 item[utc_time_col] = converted_time['utc_time']
@@ -314,11 +318,10 @@ def parse_fitbit_data(filepaths: list):
             else:
                 print("Trying to read an incorrect filepath: ", file_struct)
 
+        print("In memory: ", sys.getsizeof(total_metric_data))
         for item in total_metric_data:
             print(item)
             print()
-
-        time.sleep(1000)
 
 
 def parse_bytesnap_data(filenames: list):

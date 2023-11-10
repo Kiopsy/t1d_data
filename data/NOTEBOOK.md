@@ -1,6 +1,5 @@
 
 # Example filenames:
-
 example_filenames = [
     'Daily SpO2 - 2023-10-09-2023-11-07.csv',
     'Minute SpO2 - 2023-10-31.csv',
@@ -25,3 +24,8 @@ example_filenames = [
 11/01/23 00:00:00
 2023-11-07T01:25:30.000
 10/19/23 00:00:00
+
+# TODO:
+- Need to address how you rewrite timestamps (what happens if two timestamps say start and end are in the file)
+- Start merging files and checking for duplicates (how to )
+- can we move all the looked at files to a separate folder for now
