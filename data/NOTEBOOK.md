@@ -29,3 +29,12 @@ example_filenames = [
 - Need to address how you rewrite timestamps (what happens if two timestamps say start and end are in the file)
 - Start merging files and checking for duplicates (how to )
 - can we move all the looked at files to a separate folder for now
+
+# Optimizations
+- Binary search
+- How many times are we sorting (is it needed??)
+
+
+# Cleaning the code
+- 
+

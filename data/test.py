@@ -6,10 +6,7 @@ def convert_timestamps(timestamp_str: str, to_timezone_str: str = 'America/New_Y
     """
     Function that takes multiple timestamp formats, converts them to UTC, and then to a specified timezone.
     """
-    formats_to_try = [
-        "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M", "%d/%m/%y %H:%M:%S", "%m/%d/%y %H:%M:%S"
-    ]
+    formats_to_try = ["%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M", "%m/%d/%y %H:%M:%S", "%m/%d/%y"]
 
     to_timezone = pytz.timezone(to_timezone_str)
     results = {}
@@ -38,7 +35,7 @@ def convert_timestamps(timestamp_str: str, to_timezone_str: str = 'America/New_Y
             return results
         except ValueError:
             continue
-    
+    print('Error', timestamp_str)
     raise ValueError("Unsupported timestamp format")
 
 # Define a list of timestamps to convert
@@ -54,7 +51,11 @@ timestamps = [
     "2023-11-04T02:55:00",
     "11/01/23 00:00:00",
     "2023-11-07T01:25:30.000",
-    "10/19/23 00:00:00"
+    "10/19/23 00:00:00",
+    "2023-10-10T08:30:30.000",
+    "2023-10-08T06:49:28",
+    "2023-10-08T10:49:28.000Z",
+    "10/09/23"
 ]
 
 # Convert the timestamps and store the results
@@ -65,6 +66,8 @@ for ts in timestamps:
     except ValueError as e:
         # If a ValueError is raised, store the error message instead
         converted_timestamps_info.append(str(e))
+
+print(converted_timestamps_info)
 
 for struct in converted_timestamps_info:
     print(struct['utc_time'])

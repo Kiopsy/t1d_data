@@ -2,7 +2,6 @@
 A Python script designed to process data from the 'export_data' folder from
 Tidepool, Fitbit, and Bytesnap sources. The script generates separate files to
 create individual timelines for various metrics like  steps, calories, distance.
-
 """
 
 import os
@@ -22,14 +21,14 @@ all_events = [] # List of all events from all data sources (CSV & JSON)
 
 # Define all the folder names
 export_folder = "export_data" 
-unused_folder = "unused_data"
+used_folder = "used_data"
 cleaned_folder = "cleaned_data"
 tidepool_folder = "tidepool"
 fitbit_folder = "fitbit"
 bytesnap_folder = "bytesnap"
 
-local_time_col = "localTime"
-utc_time_col = "utcTime"
+local_time_col = "local_Time"
+utc_time_col = "utc_Time"
 
 # metric -> json file path
 metrics = dict()
@@ -39,11 +38,15 @@ fitbit_metrics = ["steps", "calories", "distance", "floors", "elevation", "minut
 
 local_timezone_str = "America/New_York"
 
-formats_to_try = [
-    "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S",
-    "%Y-%m-%dT%H:%M", "%d/%m/%y %H:%M:%S", "%m/%d/%y %H:%M:%S"
+formats_to_try =  [
+    "%Y-%m-%dT%H:%M:%S.%fZ", 
+    "%Y-%m-%dT%H:%M:%S.%f", 
+    "%Y-%m-%dT%H:%M:%SZ", 
+    "%Y-%m-%dT%H:%M:%S", 
+    "%Y-%m-%dT%H:%M", 
+    "%m/%d/%y %H:%M:%S", 
+    "%m/%d/%y"
 ]
-
 
 def create_folders():
     """
@@ -59,6 +62,19 @@ def create_folders():
 
         subfolder_cleaned_path = os.path.join(cleaned_folder, subfolder)
         os.makedirs(subfolder_cleaned_path, exist_ok=True)
+
+def move_folder_contents(export_folder_path, destination_folder_path: str):
+    # Walk through the export folder and move each item to the destination folder
+    for root, dirs, files in os.walk(export_folder_path):
+        for directory in dirs:
+            source_dir = os.path.join(root, directory)
+            destination_dir = os.path.join(destination_folder_path, os.path.relpath(source_dir, export_folder_path))
+            shutil.move(source_dir, destination_dir)
+
+        for file in files:
+            source_file = os.path.join(root, file)
+            destination_file = os.path.join(destination_folder_path, os.path.relpath(source_file, export_folder_path))
+            shutil.move(source_file, destination_file)
 
 def convert_timestamp_old(timestamp_str: str) -> (str, datetime):
     """
@@ -101,6 +117,9 @@ def convert_timestamp(timestamp_str: str) -> dict:
             datetime_obj_utc = datetime_obj.astimezone(timezone.utc)
             datetime_obj_local = datetime_obj_utc.astimezone(local_timezone)
 
+            # Offset in minutes from local to UTC
+            offset_minutes = datetime_obj_local.utcoffset().total_seconds() // 60
+
             # Format the datetime objects to the specified ISO 8601 format
             utc_iso8601_str = datetime_obj_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
             local_iso8601_str = datetime_obj_local.strftime("%Y-%m-%dT%H:%M:%S")
@@ -109,6 +128,7 @@ def convert_timestamp(timestamp_str: str) -> dict:
             results['utc_datetime'] = datetime_obj_utc
             results['local_time'] = local_iso8601_str
             results['local_datetime'] = datetime_obj_local
+            results['offset'] = offset_minutes
             return results
         except ValueError:
             continue
@@ -142,20 +162,24 @@ def get_filepaths(folder_path: str) -> list:
 
 def parse_batch(data_batch: defaultdict(list), dateobj: datetime, source: str):
     """
-    Function that takes a list of events and generates a separate json file for each metric.
+    Function that takes a list of events and generates a separate JSON file for each metric.
     If the file already exists, it will be appended to without duplicates.
     """
-    # iterate through each metric in the input data batch
+    # Iterate through each metric in the input data batch
     for metric in data_batch:
-        # load the json file for the metric in cleaned data if it exists
+        # Construct the directory path for the metric and create it if it doesn't exist
+        metric_folder = os.path.join(cleaned_folder, source, metric)
+        os.makedirs(metric_folder, exist_ok=True)
+
+        # Construct the file path for the JSON file
         filename = f"{metric}-{dateobj.year}-{dateobj.month}.json"
-        json_file_path = os.path.join(cleaned_folder, source, filename)
+        json_file_path = os.path.join(metric_folder, filename)
 
         if os.path.exists(json_file_path):
             try:
                 with open(json_file_path, 'r') as json_file:
                     loaded_data = json.load(json_file)
-                    # merge the entries from the data batch into the existing json file avoiding duplicates
+                    # Merge the entries from the data batch into the existing JSON file, avoiding duplicates
                     for entry in data_batch[metric]:
                         if entry not in loaded_data:
                             loaded_data.append(entry)
@@ -163,15 +187,16 @@ def parse_batch(data_batch: defaultdict(list), dateobj: datetime, source: str):
                         # if not binary_search_by_time(loaded_data, entry):
                         #     loaded_data.append(entry)
 
-                loaded_data.sort(key=lambda entry: convert_timestamp_old(entry['dateTime'])[1])
-                with open(json_file_path, 'w') as json_file:
-                        json.dump(loaded_data, json_file)
+                    print('entry', entry)
+                    loaded_data.sort(key=lambda entry: convert_timestamp(next((v for k, v in entry.items() if 'utc' in k)))['utc_datetime'])
+                    with open(json_file_path, 'w') as json_file:
+                            json.dump(loaded_data, json_file, indent=4)
 
             except json.JSONDecodeError as e:
                 print(f"Error loading JSON from {json_file_path}: {e}")
         else:
             with open(json_file_path, "w") as json_file:
-                json.dump(data_batch[metric], json_file)
+                json.dump(data_batch[metric], json_file, indent=4)
 
 def parse_tidepool_data(filepaths: list):
     """
@@ -285,6 +310,8 @@ def parse_fitbit_data(filepaths: list):
             continue
 
         total_metric_data = []
+    
+        # Get all the data for a specific metric
         for file_struct in file_struct_list:
 
             filename = file_struct['filename']
@@ -297,23 +324,59 @@ def parse_fitbit_data(filepaths: list):
                 with open(filename, 'r') as csvfile:
                     csvreader = csv.DictReader(csvfile)
                     for row in csvreader:
-                        for key, value in list(row.items()):  # Use list to make a copy of the items
+                        # some entries might have more than one timestamp: say start/end time
+                        found_timestamps = []
+                        for key, value in list(row.items()):
                             if not isinstance(value, dict) and isinstance(value, str) and matches_timestamp_format(value):
+                                found_timestamps.append((key, value))
+
+                        if len(found_timestamps) > 1:
+                            for key, value in found_timestamps:
                                 converted_time = convert_timestamp(value)
                                 del row[key]
-                                row[utc_time_col] = converted_time['utc_time']
-                                row[local_time_col] = converted_time['local_time']
+                                row['utc_' + key] = converted_time['utc_time']
+                                row['local_' + key] = converted_time['local_time']
+                                row['offset'] = converted_time['offset']
+                                row['datetime'] = converted_time['utc_datetime']
+
+                        elif len(found_timestamps) == 1:
+                            key, value = found_timestamps.pop()
+                            converted_time = convert_timestamp(value)
+                            del row[key]
+                            row[utc_time_col] = converted_time['utc_time']
+                            row[local_time_col] = converted_time['local_time']
+                            row['offset'] = converted_time['offset']
+                            row['datetime'] = converted_time['utc_datetime']
+                        
                         total_metric_data.append(row)
             elif extension == '.json':
                 with open(filename, 'r') as jsonfile:
                     data = json.load(jsonfile)  
                     for item in data:
+                        # some entries might have more than one timestamp: say start/end time
+                        found_timestamps = []
                         for key, value in list(item.items()):
                             if not isinstance(value, dict) and isinstance(value, str) and matches_timestamp_format(value):
+                                found_timestamps.append((key, value))
+
+                        if len(found_timestamps) > 1:
+                            for key, value in found_timestamps:
                                 converted_time = convert_timestamp(value)
                                 del item[key]
-                                item[utc_time_col] = converted_time['utc_time']
-                                item[local_time_col] = converted_time['local_time']
+                                item['utc_' + key] = converted_time['utc_time']
+                                item['local_' + key] = converted_time['local_time']
+                                item['offset'] = converted_time['offset']
+                                item['datetime'] = converted_time['utc_datetime']
+
+                        elif len(found_timestamps) == 1:
+                            key, value = found_timestamps.pop()
+                            converted_time = convert_timestamp(value)
+                            del item[key]
+                            item[utc_time_col] = converted_time['utc_time']
+                            item[local_time_col] = converted_time['local_time']
+                            item['offset'] = converted_time['offset']
+                            item['datetime'] = converted_time['utc_datetime']
+                        
                         total_metric_data.append(item)
             else:
                 print("Trying to read an incorrect filepath: ", file_struct)
@@ -322,6 +385,34 @@ def parse_fitbit_data(filepaths: list):
         for item in total_metric_data:
             print(item)
             print()
+
+        total_metric_data = sorted(total_metric_data, key=lambda x: x['datetime'])
+
+        data_batch = defaultdict(list)
+        current_month = None
+        current_dateobj = None
+        for entry in total_metric_data:
+
+            date_obj = entry['datetime']
+            del entry['datetime']
+
+            if current_month is None:
+                current_month = date_obj.month
+                current_dateobj = date_obj
+
+            if date_obj.month == current_month:
+                data_batch[metric].append(entry)
+            else:
+                # Process the data batch for the previous month
+                parse_batch(data_batch, current_dateobj, source="fitbit")
+
+                # Start a new data batch for the current month
+                data_batch = defaultdict(list)
+                data_batch[metric].append(entry)
+                current_month = date_obj.month
+                current_dateobj = date_obj
+
+        # Move all the used files into a separate folder
 
 
 def parse_bytesnap_data(filenames: list):
@@ -335,9 +426,11 @@ if __name__ == "__main__":
     # tidepool_files = get_filepaths(tidepool_path)
     # parse_tidepool_data(tidepool_files)
     
-    fitbit_path = os.path.join(export_folder, fitbit_folder)
-    fitbit_files = get_filepaths(fitbit_path)
+    fitbit_export_path = os.path.join(export_folder, fitbit_folder)
+    fitbit_used_path = os.path.join(used_folder)
+    fitbit_files = get_filepaths(fitbit_export_path)
     parse_fitbit_data(fitbit_files)
+    move_folder_contents(fitbit_export_path, fitbit_used_path)
 
     # bytesnap_path = os.path.join(export_folder, bytesnap_folder)
     # bytesnap_files = get_filepaths(bytesnap_path)
