@@ -25,7 +25,7 @@ used_folder = "used_data"
 cleaned_folder = "cleaned_data"
 tidepool_folder = "tidepool"
 fitbit_folder = "fitbit"
-bytesnap_folder = "bytesnap"
+bitesnap_folder = "bitesnap"
 
 local_time_col = "local_Time"
 utc_time_col = "utc_Time"
@@ -53,15 +53,15 @@ def create_folders():
     Creates the "cleaned" and "export" folders with subdirectories for "tidepool,"
     "fitbit," and "bytesnap" if they are missing.
     """
-    for folder in [cleaned_folder, export_folder]:
+    folders = [cleaned_folder, export_folder, used_folder]
+    subfolders = [tidepool_folder, fitbit_folder, bitesnap_folder]
+
+    for folder in folders:
         os.makedirs(folder, exist_ok=True)
 
-    for subfolder in [tidepool_folder, fitbit_folder, bytesnap_folder]:
-        subfolder_export_path = os.path.join(export_folder, subfolder)
-        os.makedirs(subfolder_export_path, exist_ok=True)
-
-        subfolder_cleaned_path = os.path.join(cleaned_folder, subfolder)
-        os.makedirs(subfolder_cleaned_path, exist_ok=True)
+        for subfolder in subfolders:
+            subfolder_path = os.path.join(folder, subfolder)
+            os.makedirs(subfolder_path, exist_ok=True)
 
 def move_folder_contents(export_folder_path, destination_folder_path: str):
     # Walk through the export folder and move each item to the destination folder
@@ -146,6 +146,48 @@ def matches_timestamp_format(timestamp_str: str):
         except ValueError:
             continue
     return False
+
+def binary_search_by_time(data, target_entry):
+    """
+    Perform a binary search to determine if an entry exists in the data based on its timestamp.
+
+    This function not only looks for the exact timestamp match but also checks nearby entries 
+    for possible duplicates with the same timestamp. 
+    """
+
+    date_key = next((k for k, v in target_entry.items() if 'utc' in k))
+    target_dateStr = target_entry[date_key]
+    target_dateTime = convert_timestamp(target_dateStr)['utc_datetime']
+    duplicates = []
+    start, end = 0, len(data) - 1
+
+    while start <= end:
+        mid = (start + end) // 2
+        current_time = convert_timestamp(data[mid][date_key])['utc_datetime']
+
+        if current_time == target_dateTime:
+            duplicates.append(data[mid])
+            
+            # Check for duplicates in the right half
+            right_index = mid + 1
+            while right_index < len(data) and data[right_index][date_key] == target_dateStr:
+                duplicates.append(data[right_index])
+                right_index += 1
+
+            # Check for duplicates in the left half
+            left_index = mid - 1
+            while left_index >= 0 and data[left_index][date_key] == target_dateStr:
+                duplicates.append(data[left_index])
+                left_index -= 1
+
+            return target_entry in duplicates
+            
+        elif current_time < target_dateTime:
+            start = mid + 1
+        else:
+            end = mid - 1
+
+    return False
     
 def get_filepaths(folder_path: str) -> list:
     """
@@ -181,22 +223,36 @@ def parse_batch(data_batch: defaultdict(list), dateobj: datetime, source: str):
                     loaded_data = json.load(json_file)
                     # Merge the entries from the data batch into the existing JSON file, avoiding duplicates
                     for entry in data_batch[metric]:
-                        if entry not in loaded_data:
-                            loaded_data.append(entry)
-                        # TODO: this is not actually faster for some reason which is strange
-                        # if not binary_search_by_time(loaded_data, entry):
+                        # if entry not in loaded_data:
                         #     loaded_data.append(entry)
+                        # print('here')
+                        # TODO: this is not actually faster for some reason which is strange
+                        if not binary_search_by_time(loaded_data, entry):
+                            loaded_data.append(entry)
 
                     print('entry', entry)
                     loaded_data.sort(key=lambda entry: convert_timestamp(next((v for k, v in entry.items() if 'utc' in k)))['utc_datetime'])
                     with open(json_file_path, 'w') as json_file:
-                            json.dump(loaded_data, json_file, indent=4)
+                        json.dump(loaded_data, json_file)
 
             except json.JSONDecodeError as e:
                 print(f"Error loading JSON from {json_file_path}: {e}")
         else:
             with open(json_file_path, "w") as json_file:
-                json.dump(data_batch[metric], json_file, indent=4)
+                json.dump(data_batch[metric], json_file)
+
+            """
+            csv code:
+
+            csv_filename = f"{metric}-{dateobj.year}-{dateobj.month}.csv"
+            csv_file_path = os.path.join(metric_folder, csv_filename)
+            fieldnames = data_batch[metric][0].keys()
+            with open(csv_file_path, mode='w', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in data_batch[metric]:
+                    writer.writerow(row)
+            """
 
 def parse_tidepool_data(filepaths: list):
     """
@@ -210,7 +266,7 @@ def parse_tidepool_data(filepaths: list):
             with open(filepath, 'r') as json_file:
                 # TODO: Address this bottleneck.. will load all of the data at once. 
                 data = json.load(json_file) 
-                sorted_data = sorted(data, key=lambda entry: convert_timestamp_old(entry['time'])[1]) 
+                sorted_data = sorted(data, key=lambda entry: convert_timestamp(entry['time'])['utc_datetime'])
                 # TODO: again bottleneck if you run into issues
 
                 data_batch = defaultdict(list)
@@ -218,13 +274,29 @@ def parse_tidepool_data(filepaths: list):
                 current_dateobj = None
                 for entry in sorted_data:
                     # Clean the entry's time data
-                    if "time" in entry:
-                        entry["dateTime"] = convert_timestamp_old(entry["time"])[0]
-                        del entry["time"]
+                    try:
+                        if "time" in entry:
+                            converted_time = convert_timestamp(entry["time"])
+                            del entry["time"]
+
+                            if "deviceTime" in entry:
+                                del entry["deviceTime"]
+                            if "localTime" in entry:
+                                del entry["localTime"]
+                            if "timezoneOffset" in entry:
+                                del entry["timezoneOffset"]
+                            
+                            entry[utc_time_col] = converted_time['utc_time']
+                            entry[local_time_col] = converted_time['local_time']
+                            entry['timezoneOffset'] = converted_time['offset']
+                            entry['datetime'] = converted_time['utc_datetime']
+                    except:
+                        print("error:", entry)
 
                     metric_type = entry["type"]
                     set_of_metrics.add(metric_type)
-                    date_obj = convert_timestamp_old(entry['dateTime'])[1]
+                    date_obj = entry['datetime']
+                    del entry['datetime']
 
                     if current_month is None:
                         current_month = date_obj.month
@@ -336,7 +408,7 @@ def parse_fitbit_data(filepaths: list):
                                 del row[key]
                                 row['utc_' + key] = converted_time['utc_time']
                                 row['local_' + key] = converted_time['local_time']
-                                row['offset'] = converted_time['offset']
+                                row['timezoneOffset'] = converted_time['offset']
                                 row['datetime'] = converted_time['utc_datetime']
 
                         elif len(found_timestamps) == 1:
@@ -345,7 +417,7 @@ def parse_fitbit_data(filepaths: list):
                             del row[key]
                             row[utc_time_col] = converted_time['utc_time']
                             row[local_time_col] = converted_time['local_time']
-                            row['offset'] = converted_time['offset']
+                            row['timezoneOffset'] = converted_time['offset']
                             row['datetime'] = converted_time['utc_datetime']
                         
                         total_metric_data.append(row)
@@ -365,7 +437,7 @@ def parse_fitbit_data(filepaths: list):
                                 del item[key]
                                 item['utc_' + key] = converted_time['utc_time']
                                 item['local_' + key] = converted_time['local_time']
-                                item['offset'] = converted_time['offset']
+                                item['timezoneOffset'] = converted_time['offset']
                                 item['datetime'] = converted_time['utc_datetime']
 
                         elif len(found_timestamps) == 1:
@@ -374,7 +446,7 @@ def parse_fitbit_data(filepaths: list):
                             del item[key]
                             item[utc_time_col] = converted_time['utc_time']
                             item[local_time_col] = converted_time['local_time']
-                            item['offset'] = converted_time['offset']
+                            item['timezoneOffset'] = converted_time['offset']
                             item['datetime'] = converted_time['utc_datetime']
                         
                         total_metric_data.append(item)
@@ -412,29 +484,91 @@ def parse_fitbit_data(filepaths: list):
                 current_month = date_obj.month
                 current_dateobj = date_obj
 
-        # Move all the used files into a separate folder
+        # Process the last data batch after exiting the loop
+        if data_batch:
+            parse_batch(data_batch, date_obj, source="fitbit")
 
 
-def parse_bytesnap_data(filenames: list):
-    pass
+def parse_bitesnap_data(filepaths: list):
+
+    """
+    "eatenAtUTC": "2023-11-12T18:10:23.000Z",
+    "eatenAtLocalTime": 20231112131023,
+    "lastModifiedUTC": 1699813049780,
+    """
+
+    for filepath in filepaths:
+        if filepath.endswith(".json"):
+            print("current file:", filepath)
+            with open(filepath, 'r') as json_file:
+                # TODO: Address this bottleneck.. will load all of the data at once. 
+                data = json.load(json_file)['entries'] 
+                sorted_data = sorted(data, key=lambda entry: convert_timestamp(entry['eatenAtUTC'])['utc_datetime'])
+                # TODO: again bottleneck if you run into issues
+
+                data_batch = defaultdict(list)
+                current_month = None
+                current_dateobj = None
+                for entry in sorted_data:
+                    # Clean the entry's time data
+                    if "eatenAtUTC" in entry:
+                        converted_time = convert_timestamp(entry["eatenAtUTC"])
+                        del entry["eatenAtUTC"]
+
+                        if "eatenAtLocalTime" in entry:
+                            del entry["eatenAtLocalTime"]
+                        if "lastModifiedUTC" in entry:
+                            del entry["lastModifiedUTC"]
+                        
+                        entry[utc_time_col] = converted_time['utc_time']
+                        entry[local_time_col] = converted_time['local_time']
+                        entry['timezoneOffset'] = converted_time['offset']
+                        entry['datetime'] = converted_time['utc_datetime']
+
+                    metric_type = 'food'
+                    date_obj = entry['datetime']
+                    del entry['datetime']
+
+                    if current_month is None:
+                        current_month = date_obj.month
+                        current_dateobj = date_obj
+
+                    if date_obj.month == current_month:
+                        data_batch[metric_type].append(entry)
+                    else:
+                        # Process the data batch for the previous month
+                        parse_batch(data_batch, current_dateobj, source="bitesnap")
+
+                        # Start a new data batch for the current month
+                        data_batch = defaultdict(list)
+                        data_batch[metric_type].append(entry)
+                        current_month = date_obj.month
+                        current_dateobj = date_obj
+
+                # Process the last data batch after exiting the loop
+                if data_batch:
+                    parse_batch(data_batch, date_obj, source="bitesnap")
+
+
+def process_data(data_folder, parser_function):
+    data_export_path = os.path.join(export_folder, data_folder)
+    data_used_path = os.path.join(used_folder, data_folder)
+    data_files = get_filepaths(data_export_path)
+    parser_function(data_files)
+    move_folder_contents(data_export_path, data_used_path)
 
 if __name__ == "__main__":
     tic = time.time()
     create_folders()
 
-    # tidepool_path = os.path.join(export_folder, tidepool_folder)
-    # tidepool_files = get_filepaths(tidepool_path)
-    # parse_tidepool_data(tidepool_files)
-    
-    fitbit_export_path = os.path.join(export_folder, fitbit_folder)
-    fitbit_used_path = os.path.join(used_folder)
-    fitbit_files = get_filepaths(fitbit_export_path)
-    parse_fitbit_data(fitbit_files)
-    move_folder_contents(fitbit_export_path, fitbit_used_path)
+    # For Fitbit data
+    process_data(fitbit_folder, parse_fitbit_data)
 
-    # bytesnap_path = os.path.join(export_folder, bytesnap_folder)
-    # bytesnap_files = get_filepaths(bytesnap_path)
-    # parse_bytesnap_data(bytesnap_files)
+    # For Tidepool data
+    process_data(tidepool_folder, parse_tidepool_data)
+
+    # For Bitesnap data
+    process_data(bitesnap_folder, parse_bitesnap_data)
 
     toc = time.time()
     print("time elapsed:", toc - tic)

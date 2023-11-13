@@ -1,5 +1,5 @@
-
-# Example filenames:
+# NOTES
+## Example filenames:
 example_filenames = [
     'Daily SpO2 - 2023-10-09-2023-11-07.csv',
     'Minute SpO2 - 2023-10-31.csv',
@@ -11,7 +11,7 @@ example_filenames = [
     'time_in_heart_rate_zones-2023-10-26.json'
 ]
 
-# Example dates
+## Example dates
 2023-11-02T00:14
 2023-10-09T18:33:18.000Z
 2023-11-07T01:25:30
@@ -25,16 +25,35 @@ example_filenames = [
 2023-11-07T01:25:30.000
 10/19/23 00:00:00
 
-# TODO:
-- Need to address how you rewrite timestamps (what happens if two timestamps say start and end are in the file)
-- Start merging files and checking for duplicates (how to )
-- can we move all the looked at files to a separate folder for now
+## TODO:
+- november month of heartrate not getting pushed
 
-# Optimizations
+## Optimizations
 - Binary search
 - How many times are we sorting (is it needed??)
+- heartrate file bottleneck.
+    - is indent messing it up? 
+    - is it csv?
+- maybe worth into looking at different file types for different metrics
+- does the file size matter?
+- ex: sleep has a complicated data structure
 
-
-# Cleaning the code
+## Cleaning the code
 - 
 
+# Running Notebook
+## 11/12/2023
+Currently in the process of getting the fitbit code to wokr properly. Binary search to check
+for duplicates seems much faster than the O(n^2) solution. However, this did not bring much
+improvement when dealing with smaller filesizes. 
+
+Also, might be interesting to keep in mind loading into memory issues. 
+
+### File Sizes
+(one month of heartrate data)
+- JSON (w/ indent)
+    - 46.1 mb
+- JSON (no indent)
+    - 29 mb
+- CSV
+    - 17.6 mb
