@@ -33,9 +33,6 @@ utc_time_col = "utc_Time"
 # metric -> json file path
 metrics = dict()
 
-tidepool_metrics = ["cgm", "bolus", "basal"]
-fitbit_metrics = ["steps", "calories", "distance", "floors", "elevation", "minutesSedentary", "minutesLightlyActive", "minutesFairlyActive", "minutesVeryActive", "activityCalories", "minutesAsleep", "minutesAwake", "numberOfAwakenings", "timeInBed", "minutesREM", "minutesLightSleep", "minutesDeepSleep", "minutesToFallAsleep", "minutesAfterWakeup", "efficiency", "weight", "bmi", "fat", "diastolic", "systolic", "heartRate", "spo2", "restingHeartRate", "restingHeartRateAverage", "restingHeartRateMin", "restingHeartRateMax", "restingHeartRateStdDev", "restingHeartRateVariance", "restingHeartRateCount", "restingHeartRateCountTotal", "restingHeartRateCountNonZero", "restingHeartRateCountNonZeroTotal", "restingHeartRateCountZero", "restingHeartRateCountZeroTotal", "restingHeartRateCountMissing", "restingHeartRateCountMissingTotal", "restingHeartRateCountUnknown", "restingHeartRateCountUnknownTotal", "restingHeartRateCountInactive", "restingHeartRateCountInactiveTotal", "restingHeartRateCountActive", "restingHeartRateCountActiveTotal", "restingHeartRateCountOutOfRange", "restingHeartRateCountOutOfRangeTotal", "restingHeartRateCountLow", "restingHeartRateCountLowTotal", "restingHeartRateCountHigh", "restingHeartRateCountHighTotal", "restingHeartRateCountSpikes", "restingHeartRateCountSpikesTotal", "restingHeartRateCountFlatlines", "restingHeartRateCountFlatlinesTotal", "restingHeartRateCountAbnormal", "restingHeartRateCountAbnormalTotal", "restingHeartRateCountNormal", "restingHeartRateCountNormalTotal", "restingHeartRateCountValid", "restingHeartRateCountValidTotal", "restingHeartRateCountInvalid", "restingHeartRateCountInvalidTotal", "restingHeartRateCountFiltered", "restingHeartRateCountFilteredTotal", "restingHeartRateCountUnfiltered", "restingHeartRateCountUnfilteredTotal", "restingHeartRateCountSuspect", "restingHeartRateCountSus"]
-
 local_timezone_str = "America/New_York"
 
 formats_to_try =  [
@@ -64,16 +61,23 @@ def create_folders():
             os.makedirs(subfolder_path, exist_ok=True)
 
 def move_folder_contents(export_folder_path, destination_folder_path: str):
-    # Walk through the export folder and move each item to the destination folder
     for root, dirs, files in os.walk(export_folder_path):
         for directory in dirs:
             source_dir = os.path.join(root, directory)
             destination_dir = os.path.join(destination_folder_path, os.path.relpath(source_dir, export_folder_path))
+            if os.path.exists(destination_dir):
+                timestamp = datetime.now().strftime("%Y%m%d")
+                destination_dir += f"_{timestamp}"
             shutil.move(source_dir, destination_dir)
 
         for file in files:
             source_file = os.path.join(root, file)
             destination_file = os.path.join(destination_folder_path, os.path.relpath(source_file, export_folder_path))
+            if os.path.exists(destination_file):
+                timestamp = datetime.now().strftime("%Y%m%d")
+                base_name, file_extension = os.path.splitext(destination_file)
+                destination_file = f"{base_name}_{timestamp}{file_extension}"
+
             shutil.move(source_file, destination_file)
 
 def convert_timestamp_old(timestamp_str: str) -> (str, datetime):
@@ -227,10 +231,26 @@ def parse_batch(data_batch: defaultdict(list), dateobj: datetime, source: str):
                         #     loaded_data.append(entry)
                         # print('here')
                         # TODO: this is not actually faster for some reason which is strange
+
+                        
+                        # TODO: Fix duplicates
+                        if entry not in loaded_data:
+                            print('not missing')
+
+                            print(loaded_data)
+
+                            print()
+
+                            print(entry)
+                            time.sleep(1000)
+
+                        if not binary_search_by_time(loaded_data, entry):
+                            print('not missing binary')
+
+
                         if not binary_search_by_time(loaded_data, entry):
                             loaded_data.append(entry)
 
-                    print('entry', entry)
                     loaded_data.sort(key=lambda entry: convert_timestamp(next((v for k, v in entry.items() if 'utc' in k)))['utc_datetime'])
                     with open(json_file_path, 'w') as json_file:
                         json.dump(loaded_data, json_file)
