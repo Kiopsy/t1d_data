@@ -26,7 +26,6 @@ cleaned_folder = "cleaned_data"
 tidepool_folder = "tidepool"
 fitbit_folder = "fitbit"
 bitesnap_folder = "bitesnap"
-
 local_time_col = "local_Time"
 utc_time_col = "utc_Time"
 
@@ -568,7 +567,6 @@ def parse_bitesnap_data(filepaths: list):
                 # Process the last data batch after exiting the loop
                 if data_batch:
                     parse_batch(data_batch, date_obj, source="bitesnap")
-
 
 def process_data(data_folder, parser_function):
     data_export_path = os.path.join(export_folder, data_folder)

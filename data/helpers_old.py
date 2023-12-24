@@ -1,41 +1,79 @@
-import shutil
 import os
-import datetime
+from datetime import datetime, timezone
+import pytz
+
+export_folder = "export_data" 
+unused_folder = "unused_data"
+cleaned_folder = "cleaned_data"
+tidepool_folder = "tidepool"
+fitbit_folder = "fitbit"
+bytesnap_folder = "bitesnap"
+
+local_timezone_str = "America/New_York"
+
+local_time_col = "local_Time"
+utc_time_col = "utc_Time"
+
+formats_to_try =  [
+    "%Y-%m-%dT%H:%M:%S.%fZ", 
+    "%Y-%m-%dT%H:%M:%S.%f", 
+    "%Y-%m-%dT%H:%M:%SZ", 
+    "%Y-%m-%dT%H:%M:%S", 
+    "%Y-%m-%dT%H:%M", 
+    "%m/%d/%y %H:%M:%S", 
+    "%m/%d/%y"
+]
 
 def create_folders():
     """
     Creates the "cleaned" and "export" folders with subdirectories for "tidepool,"
     "fitbit," and "bytesnap" if they are missing.
     """
-    folders = [cleaned_folder, export_folder, used_folder]
-    subfolders = [tidepool_folder, fitbit_folder, bitesnap_folder]
-
-    for folder in folders:
+    for folder in [cleaned_folder, export_folder]:
         os.makedirs(folder, exist_ok=True)
 
-        for subfolder in subfolders:
-            subfolder_path = os.path.join(folder, subfolder)
-            os.makedirs(subfolder_path, exist_ok=True)
+    for subfolder in [tidepool_folder, fitbit_folder, bytesnap_folder]:
+        subfolder_export_path = os.path.join(export_folder, subfolder)
+        os.makedirs(subfolder_export_path, exist_ok=True)
+
+        subfolder_cleaned_path = os.path.join(cleaned_folder, subfolder)
+        os.makedirs(subfolder_cleaned_path, exist_ok=True)
 
 def move_folder_contents(export_folder_path, destination_folder_path: str):
+    # Walk through the export folder and move each item to the destination folder
     for root, dirs, files in os.walk(export_folder_path):
         for directory in dirs:
             source_dir = os.path.join(root, directory)
             destination_dir = os.path.join(destination_folder_path, os.path.relpath(source_dir, export_folder_path))
-            if os.path.exists(destination_dir):
-                timestamp = datetime.now().strftime("%Y%m%d")
-                destination_dir += f"_{timestamp}"
             shutil.move(source_dir, destination_dir)
 
         for file in files:
             source_file = os.path.join(root, file)
             destination_file = os.path.join(destination_folder_path, os.path.relpath(source_file, export_folder_path))
-            if os.path.exists(destination_file):
-                timestamp = datetime.now().strftime("%Y%m%d")
-                base_name, file_extension = os.path.splitext(destination_file)
-                destination_file = f"{base_name}_{timestamp}{file_extension}"
-
             shutil.move(source_file, destination_file)
+
+def get_filepaths(folder_path: str) -> list:
+    """
+    Returns a list of file paths in the folder path, going through all subfolders recursively.
+    """
+    filepaths = []
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        if os.path.isdir(file_path):
+            filepaths.extend(get_filepaths(file_path))
+        else:
+            filepaths.append(file_path)
+    return filepaths
+
+def get_foldernames(folder_path: str) -> list:
+    """
+    Returns a list of all folder paths in a parent folder
+    """
+    if not os.path.exists(folder_path):
+        raise ValueError("Folder does not exist: " + folder_path)
+    items = os.listdir(folder_path)
+    folder_names = [item for item in items if os.path.isdir(os.path.join(folder_path, item))]
+    return folder_names
 
 def convert_timestamp(timestamp_str: str) -> dict:
     """
@@ -75,17 +113,6 @@ def convert_timestamp(timestamp_str: str) -> dict:
     
     raise ValueError("Unsupported timestamp format")
 
-def matches_timestamp_format(timestamp_str: str):
-    """
-    Checks if a timestamp is within accepted formats.
-    """
-    for format_str in formats_to_try:
-        try:
-            datetime.strptime(timestamp_str, format_str)
-            return True
-        except ValueError:
-            continue
-    return False
 
 def binary_search_by_time(data, target_entry):
     """
@@ -94,29 +121,26 @@ def binary_search_by_time(data, target_entry):
     This function not only looks for the exact timestamp match but also checks nearby entries 
     for possible duplicates with the same timestamp. 
     """
-
-    date_key = next((k for k, v in target_entry.items() if 'utc' in k))
-    target_dateStr = target_entry[date_key]
-    target_dateTime = convert_timestamp(target_dateStr)['utc_datetime']
+    target_dateStr, target_dateTime = convert_timestamp(target_entry["dateTime"])
     duplicates = []
     start, end = 0, len(data) - 1
 
     while start <= end:
         mid = (start + end) // 2
-        current_time = convert_timestamp(data[mid][date_key])['utc_datetime']
+        current_time = convert_timestamp(data[mid]["dateTime"])[1]
 
         if current_time == target_dateTime:
             duplicates.append(data[mid])
             
             # Check for duplicates in the right half
             right_index = mid + 1
-            while right_index < len(data) and data[right_index][date_key] == target_dateStr:
+            while right_index < len(data) and data[right_index]["dateTime"] == target_dateStr:
                 duplicates.append(data[right_index])
                 right_index += 1
 
             # Check for duplicates in the left half
             left_index = mid - 1
-            while left_index >= 0 and data[left_index][date_key] == target_dateStr:
+            while left_index >= 0 and data[left_index]["dateTime"] == target_dateStr:
                 duplicates.append(data[left_index])
                 left_index -= 1
 
@@ -128,16 +152,3 @@ def binary_search_by_time(data, target_entry):
             end = mid - 1
 
     return False
-    
-def get_filepaths(folder_path: str) -> list:
-    """
-    Returns a list of file paths in the folder path, going through all subfolders recursively.
-    """
-    filepaths = []
-    for filename in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, filename)
-        if os.path.isdir(file_path):
-            filepaths.extend(get_filepaths(file_path))
-        else:
-            filepaths.append(file_path)
-    return filepaths
