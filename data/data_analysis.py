@@ -1,15 +1,17 @@
-from data.helpers_old import *
-import os
 import json
+import os
 import re
-from collections import defaultdict
-from tabulate import tabulate
 import time
-import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import numpy as np
+from collections import defaultdict
+
 import matplotlib.colors as mcolors
+import matplotlib.dates as mdates
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from tabulate import tabulate
+
+from data.helpers_old import *
 
 """
 notes: 
